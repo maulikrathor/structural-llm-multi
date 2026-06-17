@@ -55,8 +55,7 @@ Return ONLY valid JSON. No explanation. No markdown fences.
 {
   "section_type": "I-beam",
   "unit": "cm",
-  "symmetry_x": true,
-  "symmetry_y": false,
+  "is_symmetric": true,
   "has_unlabeled_dims": false,
   "labeled_dimensions": [
     {"name": "overall_height", "value": 28, "location": "left side, vertical arrow spanning full height"},

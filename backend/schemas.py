@@ -18,7 +18,7 @@ class LabeledDimension(BaseModel):
 
 class ObserverOutput(BaseModel):
     section_type: str
-    unit: str
+    unit: str=""
     is_symmetric: bool
     has_unlabeled_dims: bool
     labeled_dimensions: list[LabeledDimension]
@@ -45,6 +45,11 @@ class ObserverOutput(BaseModel):
 
 
 # ── Agent 2: Inferencer Output ────────────────────────────────────────────────
+
+class Assumption(BaseModel):
+    feature: str
+    needed_dimension: str
+    reason: str = ""
 
 class Corner(BaseModel):
     label: str
@@ -75,43 +80,35 @@ class InferencerOutput(BaseModel):
     unit: str
     dimensions_read: dict
     inference_chain: list[str]   # step-by-step reasoning, e.g. ["web_left_x = 150/2 - 6/2 = 72"]
+    assumptions: list[Assumption] = []  # positions that could NOT be fixed by arithmetic
     corners: list[Corner]
     line_segments: list[Segment]
     components: list[StructuralComponent]
     warnings: list[str]
 
-    @field_validator('corners')
-    @classmethod
-    def must_have_corners(cls, v):
-        if len(v) < 4:
-            raise ValueError(f"Too few corners: {len(v)}. Minimum is 4.")
-        return v
-
-    @field_validator('components')
-    @classmethod
-    def must_have_components(cls, v):
-        if len(v) < 1:
+    @model_validator(mode='after')
+    def geometry_constraints(self):
+        # When assumptions are present the drawing is underdetermined; geometry
+        # validity is handled by assess_validity() in build_output, not here.
+        # Skipping here prevents a spurious retry for an unfixable structural issue.
+        if self.assumptions:
+            return self
+        if len(self.corners) < 4:
+            raise ValueError(f"Too few corners: {len(self.corners)}. Minimum is 4.")
+        if len(self.components) < 1:
             raise ValueError("components list cannot be empty")
-        return v
-
-    @model_validator(mode='after')
-    def segments_reference_valid_corners(self):
-        labels = {c.label for c in self.corners}
-        for seg in self.line_segments:
-            if seg.end1 not in labels:
-                raise ValueError(f"Segment {seg.number} end1='{seg.end1}' not in corners")
-            if seg.end2 not in labels:
-                raise ValueError(f"Segment {seg.number} end2='{seg.end2}' not in corners")
-        return self
-
-    @model_validator(mode='after')
-    def origin_must_exist(self):
         xs = [c.x for c in self.corners]
         ys = [c.y for c in self.corners]
         if min(xs) > 0.1:
             raise ValueError(f"No corner at x=0. Min x is {min(xs)}. Origin rule violated.")
         if min(ys) > 0.1:
             raise ValueError(f"No corner at y=0. Min y is {min(ys)}. Origin rule violated.")
+        labels = {c.label for c in self.corners}
+        for seg in self.line_segments:
+            if seg.end1 not in labels:
+                raise ValueError(f"Segment {seg.number} end1='{seg.end1}' not in corners")
+            if seg.end2 not in labels:
+                raise ValueError(f"Segment {seg.number} end2='{seg.end2}' not in corners")
         return self
 
 

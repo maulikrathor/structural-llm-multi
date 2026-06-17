@@ -19,6 +19,8 @@ from langgraph.graph import StateGraph, END
 from agents.observer import run_observer
 from agents.inferencer import run_inferencer
 from agents.validator import run_validator
+from geometry.validity import assess_validity
+from geometry.determinacy import check_determinacy
 
 MAX_RETRIES = 1
 
@@ -119,32 +121,57 @@ def increment_retry(state: PipelineState) -> PipelineState:
 def build_output(state: PipelineState) -> PipelineState:
     """
     Assembles final_result in the exact shape the frontend expects:
-    {section_type, unit, dimensions_read, corners, line_segments, warnings}
-    Strips inference_chain (internal reasoning, not needed by frontend).
+    {section_type, unit, dimensions_read, corners, line_segments, components, warnings}
+    Strips inference_chain and assumptions (internal reasoning, not needed by frontend).
+    Runs the deterministic validity gate to reject under-constrained geometry.
     """
     inference = state.get("inference", {})
     observation = state.get("observation", {})
     validation = state.get("validation", {})
 
-    warnings = inference.get("warnings", [])
+    warnings = list(inference.get("warnings", []) or [])
 
-    # Append any pipeline-level errors as warnings
-    pipeline_errors = state.get("errors", [])
-    if pipeline_errors:
-        warnings = warnings + [f"Pipeline: {e}" for e in pipeline_errors]
+    for e in (state.get("errors", []) or []):
+        warnings.append(f"Pipeline: {e}")
 
-    # If validator found errors but we're outputting anyway
     if validation and not validation.get("valid", True):
-        validator_errors = validation.get("errors", [])
-        warnings = warnings + [f"Validation warning: {e}" for e in validator_errors]
+        for e in (validation.get("errors", []) or []):
+            warnings.append(f"Validation warning: {e}")
+
+    # Deterministic validity gate: rejects geometry derived from assumptions
+    # (symmetry/centering/visual alignment) rather than explicit dimensions.
+    validity = assess_validity(inference)
+    if not validity["valid"]:
+        corners, segments, components = [], [], []
+        if validity.get("reason"):
+            warnings.append(validity["reason"])
+    else:
+        corners = validity["corners"]
+        segments = validity["line_segments"]
+        components = validity["components"]
+        # validity["warnings"] = inference warnings + consistency-check results;
+        # add only the new consistency-check entries to avoid duplication.
+        for w in validity["warnings"]:
+            if w not in warnings:
+                warnings.append(w)
+
+        # Secondary determinacy gate: independently verifies that every
+        # coordinate in the components can be reached from the origin by
+        # consuming exactly one labeled dimension per gap — no symmetry or
+        # centering assumptions allowed.  Warning-only for now; geometry is
+        # not blanked so we can compare outputs during calibration.
+        labeled = observation.get("labeled_dimensions") or []
+        det = check_determinacy(components, labeled)
+        if not det["determined"]:
+            warnings.append(f"Determinacy warning: {det['reason']}")
 
     final_result = {
         "section_type": inference.get("section_type", observation.get("section_type", "unknown")),
         "unit": inference.get("unit", observation.get("unit", "")),
         "dimensions_read": inference.get("dimensions_read", {}),
-        "corners": inference.get("corners", []),
-        "line_segments": inference.get("line_segments", []),
-        "components": inference.get("components", []),
+        "corners": corners,
+        "line_segments": segments,
+        "components": components,
         "warnings": warnings,
     }
 

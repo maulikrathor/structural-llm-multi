@@ -5,7 +5,6 @@ Agent 1: Observes the image. Reports what is explicitly visible.
 No inference. No calculation. Just observation.
 """
 
-import json
 from pydantic import ValidationError
 from agents.gemini_caller import call_gemini
 from prompts.observer_prompt import OBSERVER_PROMPT
@@ -29,7 +28,6 @@ async def run_observer(state: dict) -> dict:
         agent_name="observer",
     )
 
-    # Validate against schema
     try:
         validated = ObserverOutput(**raw)
         return {
@@ -38,9 +36,11 @@ async def run_observer(state: dict) -> dict:
             "errors": [],
         }
     except ValidationError as e:
-        # Observer failed schema — this is unusual, log and surface error
-        return {
-            **state,
-            "observation": raw,   # pass raw through anyway, inferencer may still work
-            "errors": [f"Observer schema error: {str(e)}"],
-        }
+        # Hard stop: passing unvalidated observation data downstream corrupts
+        # all subsequent agents. Surface the schema error immediately.
+        raise ValueError(
+            f"Observer returned output that failed schema validation — "
+            f"cannot continue pipeline. "
+            f"Fix: check the observer prompt JSON example matches ObserverOutput fields. "
+            f"Details: {str(e)}"
+        ) from e
