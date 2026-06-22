@@ -1,0 +1,86 @@
+{
+  "section_type": "U-section",
+  "unit": "unspecified",
+  "is_symmetric": false,
+  "has_unlabeled_dims": false,
+  "boundary_dimensions": [
+    {
+      "name": "left_leg_thickness",
+      "value": 20.0,
+      "location": "top left, horizontal arrow measuring thickness of W3"
+    },
+    {
+      "name": "top_member_segment_left",
+      "value": 50.0,
+      "location": "top, horizontal arrow measuring segment of W2 from inner W3 to J2"
+    },
+    {
+      "name": "top_member_segment_right",
+      "value": 200.0,
+      "location": "top, horizontal arrow measuring segment of W2 from J2 to inner W1"
+    },
+    {
+      "name": "right_leg_thickness",
+      "value": 20.0,
+      "location": "top right, horizontal arrow measuring thickness of W1"
+    },
+    {
+      "name": "left_leg_overall_height",
+      "value": 140.0,
+      "location": "left side, vertical arrow spanning full height of W3"
+    },
+    {
+      "name": "left_leg_height_to_web_bottom",
+      "value": 90.0,
+      "location": "left side, vertical arrow from bottom of W3 to bottom of W2"
+    },
+    {
+      "name": "right_leg_overall_height",
+      "value": 80.0,
+      "location": "right side, vertical arrow spanning full height of W1"
+    },
+    {
+      "name": "top_member_thickness",
+      "value": 20.0,
+      "location": "right side, short vertical arrow measuring thickness of W2"
+    },
+    {
+      "name": "bottom_left_segment_width",
+      "value": 104.3,
+      "location": "bottom, horizontal arrow from left outer edge to vertical dashed line"
+    },
+    {
+      "name": "bottom_right_segment_width",
+      "value": 185.7,
+      "location": "bottom, horizontal arrow from vertical dashed line to right outer edge"
+    }
+  ],
+  "joint_locator_dimensions": [
+    {
+      "name": "joint_J1_offset_from_bottom_of_W1",
+      "value": 30.0,
+      "location": "right side, vertical arrow from bottom of W1 to J1 marker"
+    }
+  ],
+  "joints": [
+    {
+      "name": "J1",
+      "connects": [
+        "W1",
+        "W2"
+      ],
+      "location_description": "circle mark on the right leg (W1), positioned by the 30 dimension from its bottom edge, joining it to the top member (W2)"
+    },
+    {
+      "name": "J2",
+      "connects": [
+        "W2",
+        "W3"
+      ],
+      "location_description": "circle mark on the top member (W2), positioned by the 50 dimension from the inner edge of W3, joining it to the left leg (W3)"
+    }
+  ],
+  "topology_notes": "An open U-section formed by a horizontal top member (W2) connecting a vertical left member (W3) and a vertical right member (W1). W3 is taller than W1. The section has two re-entrant corners.",
+  "alignment_notes": "The top edges of W1, W2, and W3 are aligned. The inner vertical edge of W3 aligns with the start of the 50 dimension. The inner vertical edge of W1 aligns with the end of the 200 dimension. The horizontal dashed line aligns with the bottom of W2. The vertical dashed line is a reference axis.",
+  "complexity": "complex"
+}

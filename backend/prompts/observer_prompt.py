@@ -42,6 +42,14 @@ literally see in this image. Do NOT infer, calculate, or assume anything.
        a joint marker (e.g. J1, J2) at a point along a member that already
        exists — it does not measure the member's own extent or define an edge.
      - When unsure, put it in "boundary_dimensions".
+   - DASHED / REFERENCE LINES: if a dimension's arrow terminates on a dashed
+     line, centerline, datum line, construction line, reference axis, or
+     centroid marker rather than on a solid structural edge, describe it as
+     measuring TO THE REFERENCE LINE, not to a wall, member, or component
+     boundary. It still belongs in "boundary_dimensions" (it is a real,
+     explicit measurement) but its "location" text must never claim it
+     terminates at a structural edge unless a solid structural line is also
+     drawn at that exact position.
 
 4. LIST EVERY JOINT MARKER (e.g. "J1", "J2")
    A joint marker indicates where two walls/members physically meet or connect.
@@ -76,10 +84,15 @@ literally see in this image. Do NOT infer, calculate, or assume anything.
      bottom flange, web, or another projection.
    - Identify implied intersections: note if vertical edges of un-dimensioned parts
      visually align with midpoints or edges of dimensioned parts.
-   - Centerlines / datum lines (dash-dot lines, small circle or target marks) mark a
-     reference axis only. Do NOT use them to infer is_symmetric, alignment, or any
-     coordinate position — base symmetry and alignment solely on comparing the
-     actual labeled dimension values on each side.
+   - A dashed line that does not itself trace a physical structural edge is a
+     reference/datum/centerline/construction line/reference axis/centroid
+     marker, not a wall, member, or component boundary — regardless of pattern
+     (dash-dot, dashed, etc.) or any circle/target mark on it. Do NOT use such
+     a line to infer is_symmetric, alignment, or any coordinate position, and
+     do NOT state in alignment_notes or topology_notes that it "aligns with",
+     "coincides with", or otherwise defines any wall/member/component edge,
+     corner, or segment endpoint — base symmetry and alignment solely on
+     comparing the actual labeled dimension values on each side.
 
 6. CLASSIFY COMPLEXITY
    - "simple": all dimensions are explicitly labeled, standard symmetric section

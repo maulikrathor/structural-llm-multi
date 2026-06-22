@@ -1,0 +1,174 @@
+{
+  "section_type": "U-section",
+  "unit": "unspecified",
+  "dimensions_read": {
+    "left_leg_thickness": 20.0,
+    "top_member_segment_left": 50.0,
+    "top_member_segment_right": 200.0,
+    "right_leg_thickness": 20.0,
+    "left_leg_overall_height": 140.0,
+    "left_leg_height_to_web_bottom": 90.0,
+    "right_leg_overall_height": 80.0,
+    "top_member_thickness": 20.0,
+    "bottom_left_segment_width": 104.3,
+    "bottom_right_segment_width": 185.7,
+    "overall_width": 290.0,
+    "overall_height": 140.0,
+    "Y_W2_bottom": 90.0,
+    "Y_W2_top": 110.0,
+    "Y_W1_bottom": 60.0,
+    "X_W3_outer_left": 0.0,
+    "X_W3_inner_right": 20.0,
+    "X_W1_inner_left": 270.0,
+    "X_W1_outer_right": 290.0,
+    "X_W2_inner_left": 20.0,
+    "X_W2_inner_right": 270.0,
+    "X_J2": 104.3
+  },
+  "inference_chain": [
+    "overall_width = bottom_left_segment_width + bottom_right_segment_width",
+    "overall_height = left_leg_overall_height (W3 is the tallest member, and its top aligns with overall top)",
+    "Y_W2_bottom = left_leg_height_to_web_bottom (from alignment notes: horizontal dashed line aligns with bottom of W2)",
+    "Y_W2_top = Y_W2_bottom + top_member_thickness",
+    "Y_W1_bottom = overall_height - right_leg_overall_height (since W1 top aligns with overall top)",
+    "X_W3_outer_left = 0 (by definition of origin)",
+    "X_W3_inner_right = left_leg_thickness",
+    "X_J2 = bottom_left_segment_width (prioritizing bottom dimensions for reference axis position)",
+    "X_W1_outer_right = overall_width (by definition of origin and overall width)",
+    "X_W1_inner_left = X_W1_outer_right - right_leg_thickness",
+    "X_W2_inner_left = X_W3_inner_right (from alignment notes: inner vertical edge of W3 aligns with start of 50 dim, which is W2's inner left)",
+    "X_W2_inner_right = X_W1_inner_left (from alignment notes: inner vertical edge of W1 aligns with end of 200 dim, which is W2's inner right)"
+  ],
+  "assumptions": [],
+  "corners": [
+    {
+      "label": "A",
+      "x": 0.0,
+      "y": 140.0
+    },
+    {
+      "label": "B",
+      "x": 20.0,
+      "y": 140.0
+    },
+    {
+      "label": "C",
+      "x": 270.0,
+      "y": 140.0
+    },
+    {
+      "label": "D",
+      "x": 290.0,
+      "y": 140.0
+    },
+    {
+      "label": "E",
+      "x": 290.0,
+      "y": 60.0
+    },
+    {
+      "label": "F",
+      "x": 270.0,
+      "y": 60.0
+    },
+    {
+      "label": "G",
+      "x": 270.0,
+      "y": 90.0
+    },
+    {
+      "label": "H",
+      "x": 20.0,
+      "y": 90.0
+    },
+    {
+      "label": "I",
+      "x": 20.0,
+      "y": 0.0
+    },
+    {
+      "label": "J",
+      "x": 0.0,
+      "y": 0.0
+    }
+  ],
+  "line_segments": [
+    {
+      "number": 1,
+      "end1": "A",
+      "end2": "B"
+    },
+    {
+      "number": 2,
+      "end1": "B",
+      "end2": "C"
+    },
+    {
+      "number": 3,
+      "end1": "C",
+      "end2": "D"
+    },
+    {
+      "number": 4,
+      "end1": "D",
+      "end2": "E"
+    },
+    {
+      "number": 5,
+      "end1": "E",
+      "end2": "F"
+    },
+    {
+      "number": 6,
+      "end1": "F",
+      "end2": "G"
+    },
+    {
+      "number": 7,
+      "end1": "G",
+      "end2": "H"
+    },
+    {
+      "number": 8,
+      "end1": "H",
+      "end2": "I"
+    },
+    {
+      "number": 9,
+      "end1": "I",
+      "end2": "J"
+    },
+    {
+      "number": 10,
+      "end1": "J",
+      "end2": "A"
+    }
+  ],
+  "components": [
+    {
+      "name": "left_leg_W3",
+      "bottomX": 0.0,
+      "bottomY": 0.0,
+      "breadth": 20.0,
+      "depth": 140.0
+    },
+    {
+      "name": "top_member_W2",
+      "bottomX": 20.0,
+      "bottomY": 90.0,
+      "breadth": 250.0,
+      "depth": 20.0
+    },
+    {
+      "name": "right_leg_W1",
+      "bottomX": 270.0,
+      "bottomY": 60.0,
+      "breadth": 20.0,
+      "depth": 80.0
+    }
+  ],
+  "warnings": [
+    "Conflicting dimensions: The segment of W2 from inner W3 to J2 calculates to 84.3 (104.3 - 20.0) but is explicitly labeled as 50.0. Prioritizing X_J2 from bottom dimensions.",
+    "Conflicting dimensions: The segment of W2 from J2 to inner W1 calculates to 165.7 (270.0 - 104.3) but is explicitly labeled as 200.0. Prioritizing X_J2 from bottom dimensions."
+  ]
+}
