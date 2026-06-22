@@ -25,6 +25,7 @@ async def run_validator(state: dict) -> dict:
 
     system_prompt = build_validator_prompt(inference)
 
+    print("[stage:validator:call] calling Gemini")
     raw = await call_gemini(
         system_prompt=system_prompt,
         user_text=(
@@ -35,11 +36,19 @@ async def run_validator(state: dict) -> dict:
         mime_type=mime_type,
         agent_name="validator",
     )
+    print("[stage:validator:call] Gemini call returned")
 
     try:
         validated = ValidatorOutput(**raw)
-    except ValidationError:
+        print("[stage:validator:validate] schema OK")
+        print(
+            f"[stage:validator:result] valid={validated.valid} "
+            f"errors={validated.errors} "
+            f"has_corrected_corners={validated.corrected_corners is not None}"
+        )
+    except ValidationError as e:
         # Validator itself returned garbage — treat as passed to avoid infinite loop
+        print(f"[stage:validator:validate] schema FAILED, treating as passed: {e}")
         return {
             **state,
             "validation": {"valid": True, "errors": [], "corrected_corners": None},

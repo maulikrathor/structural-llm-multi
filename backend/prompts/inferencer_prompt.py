@@ -12,6 +12,12 @@ Changes vs your working version:
   - ADDED a structured "assumptions" output field. Any position that cannot be
     fixed by explicit dimensions + arithmetic goes here (instead of being
     invented). A deterministic Python gate turns a non-empty list into INVALID.
+  - joint_locator_dimensions are stripped out of the observation before it is
+    embedded below (see build_inferencer_prompt). Geometry derivation must never
+    see them, even as an arithmetic operand - a prose "ignore this" rule was not
+    enough, since joint-locator values were still being laundered through
+    arithmetic into pseudo-boundary corners/components. Withholding the data
+    entirely closes that off.
 """
 
 import json
@@ -22,7 +28,7 @@ structural drawing and the original image. Derive missing dimensions ONLY by
 arithmetic from explicitly labeled dimensions, then compute exact corner
 coordinates.
 
-## OBSERVATIONS FROM PREVIOUS ANALYSIS
+## OBSERVATIONS FROM PREVIOUS ANALYSIS (boundary dimensions only)
 {observation_json}
 
 ## HOW A POSITION MAY BE DETERMINED (in strict priority order)
@@ -85,6 +91,10 @@ in corners? corner count matches section type?
 Decompose into primitive rectangles (bottomX, bottomY, breadth, depth) that tile
 the section with no gaps or overlap. Use descriptive names (central_web,
 continuous_bottom_flange, ...). Derive all values from the corners you computed.
+A single continuous member must remain ONE component. Only split a member into
+multiple components if the observations explicitly state a physical
+discontinuity (a gap, notch, or two visually separate solid regions) at that
+location.
 
 ## OUTPUT FORMAT
 Return ONLY valid JSON. No explanation. No markdown fences.
@@ -110,6 +120,14 @@ For a fully-dimensioned (valid) drawing, "assumptions" MUST be an empty list [].
 
 
 def build_inferencer_prompt(observation: dict) -> str:
+    # joint_locator_dimensions and joints must never reach geometry derivation -
+    # withhold them entirely rather than relying on a prompt instruction to
+    # ignore them. They are resolved later, in a separate call, after geometry
+    # is fixed (see prompts/joint_prompt.py).
+    geometry_observation = {
+        k: v for k, v in observation.items()
+        if k not in ("joint_locator_dimensions", "joints")
+    }
     return INFERENCER_PROMPT_TEMPLATE.format(
-        observation_json=json.dumps(observation, indent=2)
+        observation_json=json.dumps(geometry_observation, indent=2)
     )

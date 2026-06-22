@@ -3,9 +3,13 @@ agents/inferencer.py
 --------------------
 Agent 2: Derives missing dimensions and computes all corner coordinates.
 Receives Agent 1 observation. Has access to original image.
+
+Geometry only. Joint placement is a separate, later pipeline node
+(agents/joint_placement.py) that runs after this agent's output has passed
+validation and the retry loop has concluded - this agent must never see or
+produce joint data, so joint information has no path into geometry retries.
 """
 
-from pydantic import ValidationError
 from agents.gemini_caller import call_gemini
 from prompts.inferencer_prompt import build_inferencer_prompt
 from schemas import InferencerOutput
@@ -38,6 +42,7 @@ async def run_inferencer(state: dict) -> dict:
             f"\n\nPREVIOUS ATTEMPT FAILED VALIDATION. Fix these errors:\n{error_str}"
         )
 
+    print(f"[stage:inferencer:call] calling Gemini (retry_count={retry_count})")
     raw = await call_gemini(
         system_prompt=system_prompt,
         user_text=user_text,
@@ -45,16 +50,19 @@ async def run_inferencer(state: dict) -> dict:
         mime_type=mime_type,
         agent_name="inferencer",
     )
+    print("[stage:inferencer:call] Gemini call returned")
 
     # Validate against schema
     try:
         validated = InferencerOutput(**raw)
+        print("[stage:inferencer:validate] schema OK")
         return {
             **state,
             "inference": validated.model_dump(),
             "validation_errors": [],
         }
     except Exception as e:
+        print(f"[stage:inferencer:validate] schema FAILED: {e}")
         return {
             **state,
             "inference": raw,

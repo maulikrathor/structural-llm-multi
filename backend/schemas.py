@@ -16,18 +16,40 @@ class LabeledDimension(BaseModel):
     value: float
     location: str           # e.g. "top left, vertical arrow"
 
+class JointObservation(BaseModel):
+    name: str                  # e.g. "J1"
+    connects: list[str]        # raw wall labels visible near the joint, e.g. ["W1", "W2"]
+    location_description: str  # e.g. "circle mark on W1, near the 30-offset arrow"
+
 class ObserverOutput(BaseModel):
     section_type: str
-    unit: str=""
+    unit: str = "unspecified"   # "unspecified" when no unit text is visible in the drawing
     is_symmetric: bool
     has_unlabeled_dims: bool
-    labeled_dimensions: list[LabeledDimension]
+    # boundary_dimensions define/derive the structural outline and are the ONLY
+    # dimensions the Inferencer may use for geometry (corners/segments/components).
+    boundary_dimensions: list[LabeledDimension]
+    # joint_locator_dimensions merely position a joint marker along an already-
+    # existing member; they must never reach geometry derivation.
+    joint_locator_dimensions: list[LabeledDimension] = []
+    # raw joint catalog (labels + connected walls) — pre-coordinate. Joint
+    # placement (start/end) is resolved later, after geometry is fixed.
+    joints: list[JointObservation] = []
     topology_notes: str     # free text: "open bottom", "two webs", etc.
     alignment_notes: Optional[str] = None  # e.g. "shorter bottom flange is center-aligned"
     complexity: str         # "simple" or "complex"
     # complexity drives whether Validator runs:
     # simple = standard symmetric section, all dims labeled
     # complex = asymmetric, unlabeled dims, or unusual shape
+
+    @field_validator('unit', mode='before')
+    @classmethod
+    def unit_none_or_blank_is_unspecified(cls, v):
+        # Gemini sends null/"" when no unit text exists in the drawing — never
+        # invent a unit (mm/cm/in), record the absence explicitly instead.
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return "unspecified"
+        return v
 
     @field_validator('section_type')
     @classmethod
@@ -110,6 +132,28 @@ class InferencerOutput(BaseModel):
             if seg.end2 not in labels:
                 raise ValueError(f"Segment {seg.number} end2='{seg.end2}' not in corners")
         return self
+
+
+# ── Agent 2b: Joint Placement (separate call, runs only after geometry is
+#     fixed; this schema has no corners/components field so it has no path
+#     back into geometry) ───────────────────────────────────────────────────
+
+class Point(BaseModel):
+    x: float
+    y: float
+
+class Joint(BaseModel):
+    name: str               # e.g. "J1"
+    start: Point
+    end: Point
+    connects: list[str]     # wall labels, e.g. ["W1", "W2"]
+
+class JointPlacementOutput(BaseModel):
+    # No default: a response missing "joints" entirely is a malformed/failed
+    # call and should raise (caught by _resolve_joints, which degrades to []
+    # with a warning) rather than silently looking identical to a deliberate
+    # "no joint could be determined" {"joints": []}.
+    joints: list[Joint]
 
 
 # ── Agent 3: Validator Output ─────────────────────────────────────────────────

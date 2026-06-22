@@ -3,7 +3,12 @@ prompts/validator_prompt.py
 ----------------------------
 Agent 3: Validator
 Only runs for complex sections or when Pydantic catches errors.
-Receives the image + Agent 2 output. Checks geometric consistency.
+Receives the image + Agent 2 output. Checks geometric consistency ONLY.
+
+Joints are deliberately excluded (see build_validator_prompt) - this agent's
+"errors" feed the geometry retry loop, and joint-vs-geometry mismatches must
+never be able to trigger a geometry retry. Joint placement runs later, after
+this validator's retry loop has concluded, and never reports back here.
 """
 
 VALIDATOR_PROMPT_TEMPLATE = """
@@ -79,6 +84,10 @@ Return ONLY valid JSON. No explanation. No markdown fences.
 
 def build_validator_prompt(inferencer_output: dict) -> str:
     import json
+    # Defense in depth: strip "joints" even if present, rather than relying
+    # solely on pipeline ordering to keep it out. The Validator's "errors"
+    # drive the geometry retry loop - joint data must never reach it.
+    geometry_only = {k: v for k, v in inferencer_output.items() if k != "joints"}
     return VALIDATOR_PROMPT_TEMPLATE.format(
-        inferencer_json=json.dumps(inferencer_output, indent=2)
+        inferencer_json=json.dumps(geometry_only, indent=2)
     )

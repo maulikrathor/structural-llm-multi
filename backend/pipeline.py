@@ -1,16 +1,23 @@
 """
 pipeline.py
 -----------
-LangGraph graph wiring all three agents.
+LangGraph graph wiring all agents.
 
 Flow:
-  observe → infer → [pydantic_check] → 
-    if simple + valid   → output
-    if complex          → validate → output  
+  observe → infer → [pydantic_check] →
+    if simple + valid   → place_joints → output
+    if complex          → validate → place_joints → output
     if invalid + retry  → infer (retry with errors injected)
-    if invalid + max_retry → output with warnings (best effort)
+    if invalid + max_retry → place_joints → output with warnings (best effort)
 
-Max retries: 1 (so max 4 Gemini calls: observe + infer + validate + retry_infer)
+place_joints runs strictly AFTER the geometry retry loop has concluded
+(geometry is frozen by this point) and has NO outgoing edge back into infer
+or validate - a joint problem can never trigger a geometry retry. The
+validator never receives joint data, so its "errors" (which DO feed the
+retry loop) can never be about joints either. See agents/joint_placement.py.
+
+Max retries: 1 (so max 4 geometry-side Gemini calls: observe + infer +
+validate + retry_infer, plus one optional place_joints call.)
 """
 
 from typing import TypedDict, Optional
@@ -19,6 +26,7 @@ from langgraph.graph import StateGraph, END
 from agents.observer import run_observer
 from agents.inferencer import run_inferencer
 from agents.validator import run_validator
+from agents.joint_placement import run_joint_placement
 from geometry.validity import assess_validity
 from geometry.determinacy import check_determinacy
 
@@ -52,9 +60,11 @@ def route_after_infer(state: PipelineState) -> str:
     """
     After inferencer runs, decide next step:
     - If Pydantic validation failed AND retries left → retry (back to inferencer)
-    - If Pydantic validation failed AND no retries left → output anyway (best effort)
+    - If Pydantic validation failed AND no retries left → finalize anyway (best effort)
     - If valid AND complex section → run validator
-    - If valid AND simple section → output directly (save API call)
+    - If valid AND simple section → finalize directly (save API call)
+    "output" here means "geometry phase is done" - the graph routes that to
+    place_joints, never directly to the output node (see build_pipeline).
     """
     validation_errors = state.get("validation_errors", [])
     retry_count = state.get("retry_count", 0)
@@ -80,23 +90,34 @@ def route_after_infer(state: PipelineState) -> str:
 def route_after_validate(state: PipelineState) -> str:
     """
     After validator runs:
-    - If valid or corrected → output
+    - If valid or corrected → finalize (routes to place_joints, see build_pipeline)
     - If invalid and retries left → retry inferencer
-    - If invalid and no retries → output best effort
+    - If invalid and no retries → finalize best effort
     """
     validation = state.get("validation", {})
     retry_count = state.get("retry_count", 0)
 
+    print(
+        f"[stage:route_after_validate] valid={validation.get('valid')} "
+        f"errors={validation.get('errors')} "
+        f"corrected_corners_present={validation.get('corrected_corners') is not None} "
+        f"retry_count={retry_count} max_retries={MAX_RETRIES}"
+    )
+
     if validation.get("valid", True):
+        print("[stage:route_after_validate] decision=output (valid=True)")
         return "output"
 
     has_corrections = validation.get("corrected_corners") is not None
     if has_corrections:
+        print("[stage:route_after_validate] decision=output (corrections already applied)")
         return "output"  # validator already applied corrections in its node
 
     if retry_count < MAX_RETRIES:
+        print("[stage:route_after_validate] decision=retry (invalid, no corrections, retries remain)")
         return "retry"
 
+    print("[stage:route_after_validate] decision=output (invalid, no corrections, retries exhausted)")
     return "output"
 
 
@@ -121,9 +142,10 @@ def increment_retry(state: PipelineState) -> PipelineState:
 def build_output(state: PipelineState) -> PipelineState:
     """
     Assembles final_result in the exact shape the frontend expects:
-    {section_type, unit, dimensions_read, corners, line_segments, components, warnings}
+    {section_type, unit, dimensions_read, corners, line_segments, components, joints, warnings}
     Strips inference_chain and assumptions (internal reasoning, not needed by frontend).
     Runs the deterministic validity gate to reject under-constrained geometry.
+    By this point place_joints has already run, so inference["joints"] is final.
     """
     inference = state.get("inference", {})
     observation = state.get("observation", {})
@@ -141,8 +163,10 @@ def build_output(state: PipelineState) -> PipelineState:
     # Deterministic validity gate: rejects geometry derived from assumptions
     # (symmetry/centering/visual alignment) rather than explicit dimensions.
     validity = assess_validity(inference)
+    print(f"[stage:assess_validity] valid={validity['valid']} reason={validity.get('reason')}")
     if not validity["valid"]:
         corners, segments, components = [], [], []
+        inference = {**inference, "joints": []}  # joints reference components that no longer exist
         if validity.get("reason"):
             warnings.append(validity["reason"])
     else:
@@ -157,11 +181,13 @@ def build_output(state: PipelineState) -> PipelineState:
 
         # Secondary determinacy gate: independently verifies that every
         # coordinate in the components can be reached from the origin by
-        # consuming exactly one labeled dimension per gap — no symmetry or
-        # centering assumptions allowed.  Warning-only for now; geometry is
-        # not blanked so we can compare outputs during calibration.
-        labeled = observation.get("labeled_dimensions") or []
-        det = check_determinacy(components, labeled)
+        # consuming exactly one boundary dimension per gap — no symmetry or
+        # centering assumptions allowed, and joint_locator dimensions never
+        # count as boundary-fixing.  Warning-only for now; geometry is not
+        # blanked so we can compare outputs during calibration.
+        boundary_dims = observation.get("boundary_dimensions") or []
+        det = check_determinacy(components, boundary_dims)
+        print(f"[stage:determinacy] determined={det['determined']} reason={det.get('reason')}")
         if not det["determined"]:
             warnings.append(f"Determinacy warning: {det['reason']}")
 
@@ -172,8 +198,11 @@ def build_output(state: PipelineState) -> PipelineState:
         "corners": corners,
         "line_segments": segments,
         "components": components,
+        "joints": inference.get("joints", []),
         "warnings": warnings,
     }
+    print(f"[stage:output] corners={len(corners)} segments={len(segments)} "
+          f"components={len(components)} warnings={len(warnings)}")
 
     return {**state, "final_result": final_result}
 
@@ -188,6 +217,7 @@ def build_pipeline():
     graph.add_node("infer", run_inferencer)
     graph.add_node("validate", run_validator)
     graph.add_node("retry", increment_retry)
+    graph.add_node("place_joints", run_joint_placement)
     graph.add_node("output", build_output)
 
     # Entry point
@@ -196,26 +226,33 @@ def build_pipeline():
     # Edges
     graph.add_edge("observe", "infer")
 
+    # "output" here routes to place_joints, NOT the output node directly -
+    # geometry must be frozen (retry loop concluded) before joints are placed.
     graph.add_conditional_edges(
         "infer",
         route_after_infer,
         {
             "retry": "retry",
             "validate": "validate",
-            "output": "output",
+            "output": "place_joints",
         }
     )
 
-    graph.add_edge("retry", "infer")  # loop back with errors injected
+    graph.add_edge("retry", "infer")  # loop back with errors injected - geometry only
 
     graph.add_conditional_edges(
         "validate",
         route_after_validate,
         {
             "retry": "retry",
-            "output": "output",
+            "output": "place_joints",
         }
     )
+
+    # place_joints has no outgoing edge back into infer/validate/retry - a
+    # joint problem can never trigger a geometry retry. It unconditionally
+    # proceeds to output, degrading gracefully internally on failure.
+    graph.add_edge("place_joints", "output")
 
     graph.add_edge("output", END)
 

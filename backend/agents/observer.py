@@ -20,6 +20,7 @@ async def run_observer(state: dict) -> dict:
     image_bytes: bytes = state["image_bytes"]
     mime_type: str = state["mime_type"]
 
+    print("[stage:observer:call] calling Gemini")
     raw = await call_gemini(
         system_prompt=OBSERVER_PROMPT,
         user_text="Observe this structural drawing. Report only what is explicitly visible. Return only valid JSON.",
@@ -27,15 +28,18 @@ async def run_observer(state: dict) -> dict:
         mime_type=mime_type,
         agent_name="observer",
     )
+    print("[stage:observer:call] Gemini call returned")
 
     try:
         validated = ObserverOutput(**raw)
+        print("[stage:observer:validate] schema OK")
         return {
             **state,
             "observation": validated.model_dump(),
             "errors": [],
         }
     except ValidationError as e:
+        print(f"[stage:observer:validate] schema FAILED: {e}")
         # Hard stop: passing unvalidated observation data downstream corrupts
         # all subsequent agents. Surface the schema error immediately.
         raise ValueError(

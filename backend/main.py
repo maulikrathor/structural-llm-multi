@@ -7,6 +7,7 @@ Accepts an image, returns JSON analysis + downloadable Excel and DXF.
 
 import base64
 import os
+import traceback
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -60,7 +61,9 @@ async def analyze(file: UploadFile = File(...)):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        print(f"[ERROR] pipeline failed:\n{traceback.format_exc()}")
+        message = str(e) or "no error message — see server logs"
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {type(e).__name__}: {message}")
 
     # Generate exports — unchanged, same JSON contract
     excel_bytes = to_excel(analysis)
