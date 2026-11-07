@@ -3,6 +3,14 @@ prompts/observer_prompt.py
 --------------------------
 Agent 1: Observer
 ONLY job: observe what is explicitly visible. No inference. No calculation.
+
+Observer has no involvement with joints. It does not classify dimensions by
+purpose, does not catalog red markers, and does not estimate joint
+coordinates - that responsibility belongs entirely to Joint Placement
+(prompts/joint_prompt.py), which detects markers directly from the image
+after geometry is fixed. Observer mentally ignores red marker lines and
+reports section type, dimensions, topology, and alignment exactly as if
+they were never on the page.
 """
 
 OBSERVER_PROMPT = """
@@ -13,7 +21,10 @@ literally see in this image. Do NOT infer, calculate, or assume anything.
 
 1. IDENTIFY THE SECTION TYPE
    Look at the structural outline only (the solid boundary lines forming the shape).
-   Mentally erase all arrows, dimension numbers, and extension lines.
+   Mentally erase all arrows, dimension numbers, extension lines, and any red
+   marker lines. Red marker lines are annotations only - metadata indicating a
+   joint location. They are NOT structure, NOT geometry, and must be ignored
+   when judging the structural outline.
    Classify the remaining shape as one of:
    I-beam, T-beam, C-channel, L-section, Z-section, RHS/HSS, U-section,
    Plate/Flat Bar, Double-I, compound/complex section, or "unknown"
@@ -27,51 +38,33 @@ literally see in this image. Do NOT infer, calculate, or assume anything.
      string "unspecified". Numeric-only dimensions do NOT imply a unit — never
      guess or default to mm/cm/in.
 
-3. LIST EVERY EXPLICITLY LABELED DIMENSION, SORTED INTO TWO SEPARATE LISTS
+3. LIST EVERY EXPLICITLY LABELED DIMENSION
+   Mentally ignore red marker lines for this step too - report dimensions
+   exactly as if they were never on the page.
    For each number visible in the image with an arrow or dimension line:
    - Record the numeric value
    - Record what it appears to measure (describe the arrow's location and direction)
    - Do NOT derive or calculate any value not directly shown
    - Component/joint identifiers (e.g. "W1", "W2", "J1") are labels, not
      dimensions — do not record them as dimensions at all.
-   - Put the dimension into EXACTLY ONE of these two lists:
-     - "boundary_dimensions": the dimension measures the structural outline
-       itself (an overall size, a member's thickness/width, an offset between
-       two edges).
-     - "joint_locator_dimensions": the dimension's ONLY purpose is to position
-       a joint marker (e.g. J1, J2) at a point along a member that already
-       exists — it does not measure the member's own extent or define an edge.
-     - When unsure, put it in "boundary_dimensions".
+   - Do NOT classify a dimension by purpose (e.g. "this positions a joint" vs
+     "this measures the structure") - that is not your job. Report every
+     dimension in the single "dimensions" list.
    - DASHED / REFERENCE LINES: if a dimension's arrow terminates on a dashed
      line, centerline, datum line, construction line, reference axis, or
      centroid marker rather than on a solid structural edge, describe it as
      measuring TO THE REFERENCE LINE, not to a wall, member, or component
-     boundary. It still belongs in "boundary_dimensions" (it is a real,
-     explicit measurement) but its "location" text must never claim it
-     terminates at a structural edge unless a solid structural line is also
-     drawn at that exact position.
+     boundary. It still belongs in "dimensions" (it is a real, explicit
+     measurement) but its "location" text must never claim it terminates at
+     a structural edge unless a solid structural line is also drawn at that
+     exact position.
 
-4. LIST EVERY JOINT MARKER (e.g. "J1", "J2")
-   A joint marker indicates where two walls/members physically meet or connect.
-   For each one visible in the image:
-   - "name": the joint's label as drawn (e.g. "J1").
-   - "connects": the wall labels (e.g. "W1", "W2") of the two members it joins.
-     If the walls have no labels, describe each member briefly instead
-     (e.g. "the short right leg", "the top flange").
-   - "location_description": a plain-text description of where the marker sits
-     and which member it sits on — e.g. "circle mark on the right leg (W1),
-     positioned by the nearby offset dimension, joining it to the top flange
-     (W2)". Do NOT include coordinates - this is a description, not geometry.
-   The numeric dimension that positions a joint marker still goes in
-   "joint_locator_dimensions" (step 3) - this step only catalogs the joint
-   labels themselves and what they connect.
-
-5. NOTE TOPOLOGY
+4. NOTE TOPOLOGY
    - is_symmetric: output true ONLY if the section is symmetric both left-right AND
      top-bottom. If symmetric in only one axis, or neither, output false.
    - Is it open or closed?
    - Are there any dimensions that are NOT labeled (visible feature with no number)?
-   - Determine whether every major structural component position can be uniquely determined from boundary dimensions.
+   - Determine whether every major structural component position can be uniquely determined from the labeled dimensions.
    - If any component location depends on implied symmetry, alignment, or drafting conventions, note this explicitly in topology_notes.
    - If top and bottom flange widths differ, state whether the shorter flange is
      visually center-aligned, left-aligned, right-aligned, or uncertain.
@@ -94,7 +87,7 @@ literally see in this image. Do NOT infer, calculate, or assume anything.
      corner, or segment endpoint — base symmetry and alignment solely on
      comparing the actual labeled dimension values on each side.
 
-6. CLASSIFY COMPLEXITY
+5. CLASSIFY COMPLEXITY
    - "simple": all dimensions are explicitly labeled, standard symmetric section
    - "complex": any dimension must be inferred, or section is asymmetric or unusual
    - Always use "complex" for unequal flange widths/thicknesses, multiple connected
@@ -108,17 +101,11 @@ Return ONLY valid JSON. No explanation. No markdown fences.
   "unit": "cm",
   "is_symmetric": true,
   "has_unlabeled_dims": false,
-  "boundary_dimensions": [
+  "dimensions": [
     {"name": "overall_height", "value": 28, "location": "left side, vertical arrow spanning full height"},
     {"name": "top_flange_thickness", "value": 2, "location": "top right, short vertical arrow"},
     {"name": "web_thickness", "value": 1.5, "location": "middle, short horizontal arrow"},
     {"name": "overall_width", "value": 10, "location": "top, horizontal arrow spanning full width"}
-  ],
-  "joint_locator_dimensions": [
-    {"name": "joint_offset_from_member_bottom", "value": 6, "location": "small vertical arrow inside the right leg, next to a J1 marker"}
-  ],
-  "joints": [
-    {"name": "J1", "connects": ["W1", "W2"], "location_description": "circle mark on the right leg (W1), positioned by the joint_offset_from_member_bottom dimension, joining it to the top flange (W2)"}
   ],
   "topology_notes": "Two flanges connected by central web. Open sides between flanges and web.",
   "alignment_notes": "Top and bottom flanges appear equal and center-aligned.",

@@ -16,25 +16,17 @@ class LabeledDimension(BaseModel):
     value: float
     location: str           # e.g. "top left, vertical arrow"
 
-class JointObservation(BaseModel):
-    name: str                  # e.g. "J1"
-    connects: list[str]        # raw wall labels visible near the joint, e.g. ["W1", "W2"]
-    location_description: str  # e.g. "circle mark on W1, near the 30-offset arrow"
-
 class ObserverOutput(BaseModel):
     section_type: str
     unit: str = "unspecified"   # "unspecified" when no unit text is visible in the drawing
     is_symmetric: bool
     has_unlabeled_dims: bool
-    # boundary_dimensions define/derive the structural outline and are the ONLY
-    # dimensions the Inferencer may use for geometry (corners/segments/components).
-    boundary_dimensions: list[LabeledDimension]
-    # joint_locator_dimensions merely position a joint marker along an already-
-    # existing member; they must never reach geometry derivation.
-    joint_locator_dimensions: list[LabeledDimension] = []
-    # raw joint catalog (labels + connected walls) — pre-coordinate. Joint
-    # placement (start/end) is resolved later, after geometry is fixed.
-    joints: list[JointObservation] = []
+    # Every explicitly labeled dimension in the drawing. Observer does not
+    # classify dimensions by purpose (geometry vs. joint-related) - that
+    # responsibility belongs entirely to Joint Placement, which detects
+    # markers directly from the image. Observer mentally ignores red marker
+    # lines and reports dimensions exactly as if they were never on the page.
+    dimensions: list[LabeledDimension]
     topology_notes: str     # free text: "open bottom", "two webs", etc.
     alignment_notes: Optional[str] = None  # e.g. "shorter bottom flange is center-aligned"
     complexity: str         # "simple" or "complex"
@@ -143,10 +135,9 @@ class Point(BaseModel):
     y: float
 
 class Joint(BaseModel):
-    name: str               # e.g. "J1"
+    name: str               # assigned sequentially by Joint Placement, e.g. "J1"
     start: Point
     end: Point
-    connects: list[str]     # wall labels, e.g. ["W1", "W2"]
 
 class JointPlacementOutput(BaseModel):
     # No default: a response missing "joints" entirely is a malformed/failed

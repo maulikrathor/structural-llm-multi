@@ -10,6 +10,11 @@ the time this node runs. Read-only over that geometry: its own output schema
 back into geometry. This node has no outgoing retry edge in the pipeline
 graph, so a joint problem can never trigger a geometry retry.
 
+Sole owner of joint extraction - Observer supplies no joint data of any kind,
+so this node detects every red marker directly from the image, using only
+state["inference"] (corners/components/line_segments) as the coordinate
+reference frame.
+
 On any failure (bad JSON, schema mismatch, no resolvable location) this node
 degrades gracefully: joints=[], a warning is recorded, and geometry is left
 completely untouched. It must never raise.
@@ -23,25 +28,19 @@ from schemas import JointPlacementOutput
 async def run_joint_placement(state: dict) -> dict:
     """
     LangGraph node for Agent 2b.
-    Reads state["observation"], state["inference"] (frozen geometry),
-    state["image_bytes"], state["mime_type"].
-    Writes inference["joints"]. Never mutates corners/components/segments.
+    Reads state["inference"] (frozen geometry), state["image_bytes"],
+    state["mime_type"]. Writes inference["joints"]. Never mutates
+    corners/components/segments.
     """
-    observation: dict = state.get("observation") or {}
     inference: dict = dict(state.get("inference") or {})
     image_bytes: bytes = state["image_bytes"]
     mime_type: str = state["mime_type"]
 
-    joints_observed = observation.get("joints") or []
-    if not joints_observed:
-        inference["joints"] = []
-        return {**state, "inference": inference}
-
-    print(f"[stage:joint_placement:call] calling Gemini ({len(joints_observed)} joint(s))")
+    print("[stage:joint_placement:call] calling Gemini")
     try:
         raw = await call_gemini(
-            system_prompt=build_joint_prompt(observation, inference),
-            user_text="Place each joint onto the fixed geometry above. Return only valid JSON.",
+            system_prompt=build_joint_prompt(inference),
+            user_text="Detect every red marker in the image and report its endpoints. Return only valid JSON.",
             image_bytes=image_bytes,
             mime_type=mime_type,
             agent_name="joint_placement",

@@ -181,12 +181,11 @@ def build_output(state: PipelineState) -> PipelineState:
 
         # Secondary determinacy gate: independently verifies that every
         # coordinate in the components can be reached from the origin by
-        # consuming exactly one boundary dimension per gap — no symmetry or
-        # centering assumptions allowed, and joint_locator dimensions never
-        # count as boundary-fixing.  Warning-only for now; geometry is not
-        # blanked so we can compare outputs during calibration.
-        boundary_dims = observation.get("boundary_dimensions") or []
-        det = check_determinacy(components, boundary_dims)
+        # consuming exactly one labeled dimension per gap — no symmetry or
+        # centering assumptions allowed. Warning-only for now; geometry is
+        # not blanked so we can compare outputs during calibration.
+        dims = observation.get("dimensions") or []
+        det = check_determinacy(components, dims)
         print(f"[stage:determinacy] determined={det['determined']} reason={det.get('reason')}")
         if not det["determined"]:
             warnings.append(f"Determinacy warning: {det['reason']}")
