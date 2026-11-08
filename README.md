@@ -1,120 +1,81 @@
-# Structural Section Analyzer
+# Structural Section Geometry Extractor
 
-A web application that analyzes 2D structural engineering drawings and extracts precise corner coordinates, line segments, and exports CAD-compatible files.
+A FastAPI + LangGraph pipeline that turns an image of a 2D structural section drawing (I, T, L, C, U and compound sections) into machine-readable geometry: corner coordinates, boundary segments, rectangular structural components, and joint locations marked by red lines on the drawing.
 
-Upload any structural section drawing — I-beam, T-beam, C-channel, L-section, Z-section, HSS, or even a hand-drawn sketch — and get back a fully labeled coordinate diagram, point table, line segment table, Excel report, DXF file, and JSON output.
+The output is meant to feed engineering calculations such as centroid and moment of inertia. Plausible but wrong geometry is worse than none, so the system's core rule is: **geometry may come only from labelled dimensions and arithmetic on them.** When a drawing doesn't contain enough dimensions, the system says which one is missing instead of guessing.
 
----
-
-## Demo
-
-**Input:** A photo or scan of any 2D structural section drawing (with dimensions labeled)
-
-**Output:**
-- Clean labeled structural diagram with corners marked A, B, C...
-- Point table with X, Y coordinates (origin at bottom-left)
-- Line segment table (segment number, End 1, End 2)
-- Downloadable Excel (.xlsx), DXF (.dxf), and JSON (.json) files
+Built during an AI engineering internship (May–June 2026).
 
 ---
 
-## How It Works
+## How it works
 
-No OpenCV. No pixel detection. No training data.
+Four Gemini 2.5 Flash calls, each with one responsibility, orchestrated as a LangGraph state graph. Python code makes the final decisions.
 
-The system sends the image to **Google Gemini 2.5 Flash** (a vision LLM) with a carefully engineered system prompt. Gemini reads the dimension annotations semantically — exactly like a human engineer would — and computes all corner coordinates mathematically. The frontend then renders a clean labeled diagram purely from the returned coordinates using HTML Canvas.
-
-```
-User uploads image
-       ↓
-FastAPI backend receives image
-       ↓
-Image encoded as Base64 → sent to Gemini 2.5 Flash with system prompt
-       ↓
-Gemini identifies section type, reads dimensions, computes coordinates
-Returns structured JSON (section type, corners, line segments)
-       ↓
-Backend generates Excel + DXF from JSON
-Returns everything to frontend
-       ↓
-Frontend renders labeled diagram (Canvas) + tables + download buttons
+```mermaid
+flowchart TD
+    A[FastAPI: POST /api/analyze] --> B[Observer: transcribes visible facts]
+    B --> C[Inferencer: computes coordinates, lists what it cannot derive]
+    C -->|complex drawings| D[Validator: audits geometry, may correct corners]
+    C -->|simple drawings| E
+    D -->|valid or corrected| E[Joint Placement: detects red markers]
+    D -->|invalid, no fix| R[Retry once with errors fed back]
+    C -->|schema error| R
+    R --> C
+    E --> F[Python gates: build_output]
+    F --> G[JSON + Excel/DXF exports]
 ```
 
----
+| Stage | Type | Responsibility |
+|---|---|---|
+| **Observer** | LLM | Reports only what is visible: section type, unit (or `"unspecified"`), every labelled dimension and where it sits, topology, simple/complex. No arithmetic, no joints. |
+| **Inferencer** | LLM | Computes corners, segments and components using explicit dimensions and arithmetic only, recording each step. Anything it cannot derive goes into a structured `assumptions` list instead of being guessed. |
+| **Validator** | LLM | Audits the geometry against the drawing (complex sections only). Can return corrected corners or trigger the single retry. |
+| **Joint Placement** | LLM | Runs after geometry is frozen. Detects red marker lines from the image and reports them in the geometry's coordinate frame. |
+| **`build_output`** | Python | Blocks the geometry if any assumption was declared, naming the missing dimensions. Runs Shapely component-tiling and union-find determinacy checks (currently advisory warnings). |
 
-## Supported Section Types
+### Design decisions
 
-| Section | Corners |
-|---|---|
-| I-beam (I-section) | 12 |
-| T-beam (T-section) | 8 |
-| C-channel (C-section) | 8 |
-| L-section (Angle) | 6 |
-| Z-section | 8 |
-| Hollow Rectangular Section (RHS/HSS) | 8 |
-| Structural Plate / Flat Bar | 4 |
+- **Perception is separated from computation.** A single-prompt version worked on textbook shapes only because it silently assumed symmetry and centring. Splitting the stages makes "what's on the page" inspectable separately from "what was computed", and gives the model a structured place to declare what it couldn't derive.
+- **Joint detection is isolated from geometry.** Letting the perception stage know about joints leaked joint data into the geometry. Joint detection is now a separate call after the geometry loop ends. Its schema declares only `joints`, the graph has no edge back into the geometry stages, and on any failure it returns an empty list rather than raising.
+- **Every stage has a Pydantic contract.** Model output is requested in JSON mode at temperature 0 and validated before the next stage uses it. Perception failures stop the request. Inferencer failures get one corrective retry. A malformed Validator response is treated as a pass, so a broken auditor can't loop the pipeline.
+- **Retries by failure class.** HTTP 503/429 are retried up to 3 attempts using the server's suggested delay. Timeouts are not retried. The read timeout is 300 s because generation time grows with output size. Every call logs finish reason, token counts and latency.
 
-Works with:
-- Clean CAD-style drawings
-- Scanned hand-drawn sketches
-- Colored/filled diagrams
-- Any dimension annotation style (`h=30`, `tw=0.7`, `bf=8`, symbolic or numeric)
-- Dimensions given once (symmetric) or separately for top/bottom flanges
+### Current limitations
 
----
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Frontend | Next.js 14 (TypeScript) |
-| Backend | FastAPI (Python) |
-| LLM | Google Gemini 2.5 Flash |
-| Excel export | openpyxl |
-| DXF export | ezdxf |
-| Diagram rendering | HTML Canvas (no extra API call) |
-| Backend hosting | Railway |
-| Frontend hosting | Vercel |
+- The Inferencer LLM computes the coordinates; Python verifies and can veto them but does not compute them. A deterministic Shapely-based rebuild (`geometry/render.py`) exists but is not wired in.
+- The blocking gate relies on the model reporting its own assumptions. The independent tiling and determinacy checks are warning-only until calibrated.
+- There is no automated test suite or benchmark. Testing was manual, against a small set of drawings run at least twice each, so no accuracy figure is claimed.
+- The frontend renders corners and segments only; components and joints are in the JSON response. Excel/DXF exports contain corners and segments.
 
 ---
 
-## Project Structure
+## Project structure
 
 ```
-structural_llm/
-├── backend/
-│   ├── main.py              # FastAPI app — POST /api/analyze endpoint
-│   ├── prompt.py            # System prompt (core intelligence)
-│   ├── gemini_client.py     # Gemini API call + JSON parsing
-│   ├── exporters.py         # Excel (.xlsx) and DXF file generation
-│   └── requirements.txt
-│
-├── frontend/
-│   ├── pages/
-│   │   ├── index.tsx        # Main page: upload + results
-│   │   └── _app.tsx         # Global CSS loader
-│   ├── components/
-│   │   ├── ImageUpload.tsx      # Drag-and-drop image upload
-│   │   ├── ResultTables.tsx     # Point table + line segment table
-│   │   └── AnnotatedCanvas.tsx  # Structural diagram drawn from coordinates
-│   ├── styles/globals.css
-│   ├── next.config.js
-│   └── package.json
-│
-├── .gitignore
-└── README.md
+backend/
+  main.py                FastAPI app: POST /api/analyze, GET /api/health
+  pipeline.py            LangGraph graph, routing, retry loop, build_output
+  schemas.py             Pydantic contracts for every stage
+  exporters.py           Excel (openpyxl) and DXF (ezdxf) generation
+  agents/
+    gemini_caller.py     Gemini REST client: retries, timeouts, token/latency logging
+    observer.py          Stage 1: perception
+    inferencer.py        Stage 2: geometry
+    validator.py         Stage 3: audit (complex sections only)
+    joint_placement.py   Stage 4: red-marker detection, after geometry is frozen
+  prompts/               One prompt per stage
+  geometry/
+    validity.py          Assumptions gate + Shapely tiling check
+    determinacy.py       Union-find determinacy check (warning-only)
+frontend/                Next.js: upload, canvas diagram, tables, downloads
 ```
 
 ---
 
-## Local Setup
+## Running locally
 
-### Prerequisites
-- Python 3.10+
-- Node.js 18+
-- Google AI Studio API key → [aistudio.google.com](https://aistudio.google.com)
-
-### Backend
+**Backend** (Python 3.10+)
 
 ```bash
 cd backend
@@ -124,147 +85,54 @@ pip install -r requirements.txt
 ```
 
 Create `backend/.env`:
+
 ```
 GEMINI_API_KEY=your_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
 ```
 
-Start the server:
 ```bash
 uvicorn main:app --reload --port 8000
+curl -X POST http://localhost:8000/api/analyze -F "file=@drawing.png;type=image/png"
 ```
 
-Test it directly:
-```bash
-curl -X POST http://localhost:8000/api/analyze \
-  -F "file=@your_image.png"
-```
-
-### Frontend
+**Frontend** (Node 18+)
 
 ```bash
 cd frontend
 npm install
-npm run dev       # runs on http://localhost:3000
+npm run dev
 ```
 
 Create `frontend/.env.local`:
+
 ```
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) and upload a structural drawing.
-
 ---
 
-## Deployment
+## API
 
-### Backend → Railway
+`POST /api/analyze` accepts `multipart/form-data` with a `file` field (PNG, JPEG or WebP, max 10 MB).
 
-1. Create a new project on [railway.app](https://railway.app) from this GitHub repo
-2. Set **Root Directory** to `backend`
-3. Set **Start Command** to `uvicorn main:app --host 0.0.0.0 --port $PORT`
-4. Add environment variables:
-   ```
-   GEMINI_API_KEY=your_api_key_here
-   GEMINI_MODEL=gemini-2.5-flash
-   ```
-5. Deploy → Railway gives you a URL like `https://structural-llm-production.up.railway.app`
-
-### Frontend → Vercel
-
-1. Import this GitHub repo on [vercel.com](https://vercel.com)
-2. Set **Root Directory** to `frontend`
-3. Add environment variable:
-   ```
-   NEXT_PUBLIC_API_URL=https://your-railway-url.up.railway.app
-   ```
-4. Deploy
-
----
-
-## API Reference
-
-### `POST /api/analyze`
-
-**Request:** `multipart/form-data` with field `file` (PNG, JPEG, or WebP, max 10MB)
-
-**Response:**
 ```json
 {
   "analysis": {
-    "section_type": "I-beam",
-    "unit": "cm",
-    "dimensions_read": {
-      "overall_height": 9,
-      "overall_width": 8,
-      "top_flange_thickness": 1,
-      "bottom_flange_thickness": 1,
-      "web_thickness": 0.7
-    },
-    "corners": [
-      { "label": "A", "x": 0, "y": 9 },
-      { "label": "B", "x": 8, "y": 9 },
-      "..."
-    ],
-    "line_segments": [
-      { "number": 1, "end1": "A", "end2": "B" },
-      "..."
-    ],
+    "section_type": "U-section",
+    "unit": "mm",
+    "dimensions_read": { "overall_width": 200, "web_thickness": 20 },
+    "corners": [{ "label": "A", "x": 0, "y": 150 }],
+    "line_segments": [{ "number": 1, "end1": "A", "end2": "B" }],
+    "components": [{ "name": "left_leg", "bottomX": 0, "bottomY": 0, "breadth": 20, "depth": 150 }],
+    "joints": [{ "name": "J1", "start": { "x": 0, "y": 60 }, "end": { "x": 20, "y": 60 } }],
     "warnings": []
   },
-  "exports": {
-    "excel_b64": "<base64 encoded .xlsx>",
-    "dxf_b64": "<base64 encoded .dxf>"
-  }
+  "exports": { "excel_b64": "...", "dxf_b64": "..." }
 }
 ```
 
-**Coordinate convention:**
-- Origin `(0, 0)` at bottom-left corner of structure
-- X increases rightward
-- Y increases upward
-- Corners labeled A, B, C... clockwise from top-left
+- Origin `(0, 0)` is the section's leftmost and bottommost extent; there are no negative coordinates.
+- If the drawing is under-constrained, `corners`, `line_segments`, `components` and `joints` are empty and `warnings` names the missing dimensions.
+- Errors: `400` for a bad upload, `422` for a pipeline validation failure, `500` otherwise.
 
-### `GET /api/health`
-
-Returns `{ "status": "ok" }` — use for uptime checks.
-
----
-
-## Environment Variables
-
-| Variable | Location | Description |
-|---|---|---|
-| `GEMINI_API_KEY` | backend `.env` | Google AI Studio API key |
-| `GEMINI_MODEL` | backend `.env` | Gemini model string (`gemini-2.5-flash`) |
-| `NEXT_PUBLIC_API_URL` | frontend `.env.local` | Full URL of the backend server |
-
----
-
-## Design Decisions
-
-**Why LLM instead of computer vision?**
-The previous prototype used 2200+ lines of OpenCV code (Hough transforms, edge detection, graph algorithms) to detect corners from pixel data. It required manual tuning for every new image style and failed on hand-drawn inputs. Replacing it with a single well-engineered LLM prompt reduced the codebase by ~90%, works on all image styles including hand-drawn, and handles any dimension annotation convention without code changes.
-
-**Why draw a fresh diagram instead of annotating the original image?**
-Superimposing coordinates onto the original image requires knowing exactly where the structure is within the image in pixel space — which varies per image. Drawing a clean diagram from the coordinate math is simpler, always correct, and actually more useful to the user since the clean diagram is uncluttered by dimension lines and arrows.
-
-**Why direct fetch to Railway instead of through Vercel?**
-Vercel serverless functions have a hard 10-second timeout. Gemini 2.5 Flash can take 2–4 minutes on complex images. The frontend calls Railway directly using `NEXT_PUBLIC_API_URL`.
-
----
-
-## Roadmap
-
-- [ ] Multi-agent extension: structural analysis agent for cut lines, joint recommendations, centroid and moment of inertia calculations
-- [ ] SpringBoot backend migration
-- [ ] Compound/complex section support
-- [ ] Batch processing (multiple images)
-- [ ] Section comparison view
-
----
-
-## License
-
-MIT
+`GET /api/health` returns `{ "status": "ok" }`.
